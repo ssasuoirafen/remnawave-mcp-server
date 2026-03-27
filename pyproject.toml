@@ -2,7 +2,7 @@
 name = "remnawave-mcp-server"
 version = "1.0.0"
 description = "MCP server for Remnawave panel API - manage users, nodes, hosts, and system via Claude Code or any MCP client"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "ssasuoirafen" }]
 keywords = ["mcp", "remnawave", "xray", "vpn", "vless"]
