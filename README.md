@@ -1,64 +1,6 @@
-# Remnawave MCP Server
+# remnawave-mcp-server
 
 MCP server for [Remnawave](https://github.com/remnawave/panel) panel API. Manage VPN users, nodes, hosts, and system stats from Claude Code or any MCP-compatible client.
-
-## Features
-
-- **Users** - list, create, update, delete, enable/disable, revoke, reset traffic
-- **Nodes** - list, get details, enable/disable, restart
-- **Hosts** - list and inspect subscription hosts
-- **Squads** - list internal (inbound groups) and external (tariff plans)
-- **Subscriptions** - view settings, list config profiles
-- **System** - stats, health, bandwidth, real-time node metrics
-
-## Installation
-
-Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
-
-```bash
-git clone https://github.com/ssasuoirafen/remnawave-mcp-server.git
-cd remnawave-mcp-server
-uv sync
-```
-
-## Configuration
-
-Set environment variables for your Remnawave panel:
-
-| Variable | Description |
-|----------|-------------|
-| `REMNAWAVE_API_URL` | Panel API URL (e.g. `https://panel.example.com/api`) |
-| `REMNAWAVE_API_USERNAME` | Admin username |
-| `REMNAWAVE_API_PASSWORD` | Admin password |
-
-## Usage
-
-### Claude Code
-
-Add to your `.claude/settings.json` or `.claude/settings.local.json`:
-
-```json
-{
-  "mcpServers": {
-    "remnawave": {
-      "type": "stdio",
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/remnawave-mcp-server", "remnawave-mcp-server"],
-      "env": {
-        "REMNAWAVE_API_URL": "https://panel.example.com/api",
-        "REMNAWAVE_API_USERNAME": "admin",
-        "REMNAWAVE_API_PASSWORD": "password"
-      }
-    }
-  }
-}
-```
-
-### Standalone
-
-```bash
-uv run remnawave-mcp-server
-```
 
 ## Tools
 
@@ -110,6 +52,40 @@ uv run remnawave-mcp-server
 | `remnawave_get_system_health` | Process health (CPU, memory) |
 | `remnawave_get_bandwidth_stats` | Bandwidth over time range |
 | `remnawave_get_node_metrics` | Real-time node metrics |
+
+## Configuration
+
+### Claude Code (`.mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "remnawave": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ssasuoirafen/remnawave-mcp-server", "remnawave-mcp-server"],
+      "env": {
+        "REMNAWAVE_API_URL": "https://panel.example.com/api",
+        "REMNAWAVE_API_USERNAME": "your-username",
+        "REMNAWAVE_API_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+| Variable | Description |
+|----------|-------------|
+| `REMNAWAVE_API_URL` | Panel API URL (e.g. `https://panel.example.com/api`) |
+| `REMNAWAVE_API_USERNAME` | Admin username |
+| `REMNAWAVE_API_PASSWORD` | Admin password |
+
+## Development
+
+```bash
+git clone https://github.com/ssasuoirafen/remnawave-mcp-server.git
+cd remnawave-mcp-server
+uv sync
+```
 
 ## License
 
