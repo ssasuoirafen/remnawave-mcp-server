@@ -24,7 +24,7 @@ dependencies = [
 Repository = "https://github.com/ssasuoirafen/remnawave-mcp-server"
 
 [project.scripts]
-remnawave-mcp-server = "remnawave_mcp.server:main"
+remnawave-mcp = "remnawave_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]

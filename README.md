@@ -62,7 +62,7 @@ MCP server for [Remnawave](https://github.com/remnawave/panel) panel API. Manage
   "mcpServers": {
     "remnawave": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/ssasuoirafen/remnawave-mcp-server", "remnawave-mcp-server"],
+      "args": ["--from", "git+https://github.com/ssasuoirafen/remnawave-mcp-server", "remnawave-mcp"],
       "env": {
         "REMNAWAVE_API_URL": "https://panel.example.com/api",
         "REMNAWAVE_API_USERNAME": "your-username",
