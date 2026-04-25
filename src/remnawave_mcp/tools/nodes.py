@@ -58,6 +58,13 @@ class NodeUuidInput(BaseModel):
     uuid: str = Field(..., description="Node UUID")
 
 
+class RestartAllNodesInput(BaseModel):
+    force: bool = Field(
+        True,
+        description="If true, panel skips its config-hash check and forces every node to restart Xray. Default true (mirrors the Remnawave UI 'Restart all' button).",
+    )
+
+
 def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
 
     @mcp.tool(
@@ -122,11 +129,15 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def restart_node(params: NodeUuidInput) -> str:
-        """[BROKEN] Restart XRay on a specific node. API returns eventSent=true but node ignores it. Use disable+enable as workaround."""
+        """[BROKEN UPSTREAM] Restart XRay on a specific node. API returns eventSent=true, but the node-side processor hardcodes forceRestart=false, so XRay is not actually restarted when the config hash matches. Use disable+enable as workaround, or remnawave_restart_all_nodes (which supports force=true)."""
         try:
             data = await api.request("POST", f"/api/nodes/{params.uuid}/actions/restart")
             if data["response"].get("eventSent"):
-                return f"Node {params.uuid} restart event sent (NOTE: this endpoint is broken in Remnawave - use disable+enable instead)."
+                return (
+                    f"Node {params.uuid} restart event sent. "
+                    "WARNING: this endpoint is broken upstream (start-node processor hardcodes forceRestart=false). "
+                    "If XRay does not actually restart, use disable+enable on this node."
+                )
             return f"Node restart response: {data['response']}"
         except Exception as e:
             return handle_error(e)
@@ -135,10 +146,11 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         name="remnawave_restart_all_nodes",
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
-    async def restart_all_nodes() -> str:
-        """[BROKEN] Restart XRay on ALL nodes. API returns eventSent=true but nodes ignore it. Use disable+enable per node as workaround."""
+    async def restart_all_nodes(params: RestartAllNodesInput | None = None) -> str:
+        """Restart XRay on ALL enabled nodes. By default sends forceRestart=true so the panel skips its config-hash check; pass force=false to use the panel's hash-based decision (which often skips the restart)."""
         try:
-            await api.request("POST", "/api/nodes/actions/restart-all")
-            return "All nodes restart event sent (NOTE: this endpoint is broken in Remnawave - use disable+enable per node instead)."
+            force = params.force if params is not None else True
+            await api.request("POST", "/api/nodes/actions/restart-all", body={"forceRestart": force})
+            return f"All nodes restart event sent (forceRestart={str(force).lower()})."
         except Exception as e:
             return handle_error(e)
