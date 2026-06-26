@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from .api_client import RemnawaveApiClient
 from .tools import hosts, nodes, squads, subscriptions, system, users
 
-mcp = FastMCP("remnawave_mcp")
+mcp = FastMCP("remnawave-mcp")
 
 try:
     api = RemnawaveApiClient()
