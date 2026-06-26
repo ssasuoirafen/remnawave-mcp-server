@@ -27,6 +27,8 @@ MCP server for [Remnawave](https://github.com/remnawave/panel) panel API. Manage
 | `remnawave_restart_node` | Restart single node |
 | `remnawave_restart_all_nodes` | Restart all nodes |
 
+> Note: `remnawave_restart_node` (single node) is broken upstream - the panel reports the event as sent, but the node-side processor hardcodes `forceRestart=false`, so XRay is not actually restarted when the config hash matches. Prefer `remnawave_disable_node` + `remnawave_enable_node`, or `remnawave_restart_all_nodes` (which sends `forceRestart=true`).
+
 ### Hosts
 | Tool | Description |
 |------|-------------|
@@ -60,11 +62,11 @@ MCP server for [Remnawave](https://github.com/remnawave/panel) panel API. Manage
 ```json
 {
   "mcpServers": {
-    "remnawave": {
+    "remnawave-mcp": {
       "command": "uvx",
       "args": ["--from", "git+https://github.com/ssasuoirafen/remnawave-mcp-server", "remnawave-mcp"],
       "env": {
-        "REMNAWAVE_API_URL": "https://panel.example.com/api",
+        "REMNAWAVE_API_URL": "https://panel.example.com",
         "REMNAWAVE_API_USERNAME": "your-username",
         "REMNAWAVE_API_PASSWORD": "your-password"
       }
@@ -75,9 +77,11 @@ MCP server for [Remnawave](https://github.com/remnawave/panel) panel API. Manage
 
 | Variable | Description |
 |----------|-------------|
-| `REMNAWAVE_API_URL` | Panel API URL (e.g. `https://panel.example.com/api`) |
+| `REMNAWAVE_API_URL` | Panel root URL, no `/api` suffix - the server prefixes `/api/...` on every request (e.g. `https://panel.example.com`) |
 | `REMNAWAVE_API_USERNAME` | Admin username |
 | `REMNAWAVE_API_PASSWORD` | Admin password |
+
+> Note: the panel client connects with TLS verification disabled (`verify=False`) by design, so it works with internal panels that use self-signed certificates. Make sure you trust the network path to your panel.
 
 ## Development
 
