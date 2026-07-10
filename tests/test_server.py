@@ -42,8 +42,9 @@ EXPECTED_TOOL_NAMES = {
     "remnawave_list_config_profiles",
     "remnawave_get_config_profile",
     "remnawave_update_config_profile",
-    # squads (2)
+    # squads (3)
     "remnawave_list_internal_squads",
+    "remnawave_update_internal_squad",
     "remnawave_list_external_squads",
     # hosts (5)
     "remnawave_list_hosts",
@@ -59,7 +60,7 @@ def _registered_tool_names() -> set[str]:
 
 
 def test_registered_tool_count():
-    assert len(_registered_tool_names()) == 33
+    assert len(_registered_tool_names()) == 34
 
 
 def test_registered_tool_names():

@@ -1,8 +1,21 @@
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
 
 from ..api_client import RemnawaveApiClient, handle_error
+
+
+class UpdateInternalSquadInput(BaseModel):
+    uuid: str = Field(..., description="Internal squad UUID")
+    name: str | None = Field(default=None, description="New squad name")
+    inbounds: list[str] | None = Field(
+        default=None,
+        description=(
+            "Inbound UUIDs. REPLACES the squad's entire inbound set - include every "
+            "inbound the squad should keep (current UUIDs: remnawave_list_internal_squads)."
+        ),
+    )
 
 
 def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
@@ -31,8 +44,42 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
                 lines.append(f"- **Inbounds**: {info.get('inboundsCount', 0)}")
                 inbounds = s.get("inbounds", [])
                 if inbounds:
-                    lines.append(f"- **Inbound tags**: {', '.join(ib['tag'] for ib in inbounds)}")
+                    lines.append("- **Inbounds**:")
+                    lines.extend(f"  - {ib['tag']} [{ib['uuid']}]" for ib in inbounds)
                 lines.append("")
+            return "\n".join(lines)
+        except Exception as e:
+            return handle_error(e)
+
+    @mcp.tool(
+        name="remnawave_update_internal_squad",
+        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+    )
+    async def update_internal_squad(params: UpdateInternalSquadInput) -> str:
+        """Update an internal squad (MUTATES PROD: changes which inbounds its members
+        get). `inbounds` replaces the full set."""
+        try:
+            if params.name is None and params.inbounds is None:
+                return "Error: Provide name and/or inbounds to update."
+            body: dict = {"uuid": params.uuid}
+            if params.name is not None:
+                body["name"] = params.name
+            if params.inbounds is not None:
+                body["inbounds"] = params.inbounds
+            data = await api.request("PATCH", "/api/internal-squads", body)
+            s = data["response"]
+            info = s.get("info", {})
+            lines = [
+                "Internal squad updated.",
+                "",
+                f"## {s['name']}",
+                f"- **UUID**: {s['uuid']}",
+                f"- **Members**: {info.get('membersCount', 0)}",
+                f"- **Inbounds**: {info.get('inboundsCount', 0)}",
+            ]
+            inbounds = s.get("inbounds", [])
+            if inbounds:
+                lines.append("- **Inbound tags**: " + ", ".join(ib["tag"] for ib in inbounds))
             return "\n".join(lines)
         except Exception as e:
             return handle_error(e)
