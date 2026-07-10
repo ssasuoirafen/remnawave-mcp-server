@@ -25,10 +25,10 @@ MCP server for [Remnawave](https://github.com/remnawave/panel) panel API. Manage
 | `remnawave_update_node` | Update node settings (address, config profile/inbounds, traffic limits, tags, note) |
 | `remnawave_enable_node` | Enable node |
 | `remnawave_disable_node` | Disable node |
-| `remnawave_restart_node` | Restart single node (`force_cycle=true` for a reliable disable+enable cycle) |
+| `remnawave_restart_node` | Restart single node (sends `forceRestart`; `force_cycle=true` for disable+enable) |
 | `remnawave_restart_all_nodes` | Restart all nodes |
 
-> Note: the panel's single-node restart endpoint is broken upstream - it reports the event as sent, but the node-side processor hardcodes `forceRestart=false`, so XRay is not actually restarted when the config hash matches. `remnawave_restart_node` with `force_cycle=true` works around this by disabling and re-enabling the node (briefly drops its connections). `remnawave_restart_all_nodes` is unaffected (sends `forceRestart=true`).
+> Note: panel 2.8.0 requires `forceRestart` in the single-node restart body and honors it (older panels ignored the flag and skipped the restart when the config hash matched). The tool sends `forceRestart=true` by default. `force_cycle=true` disables and re-enables the node instead - a heavier fallback that also re-establishes the panel-node connection (briefly drops its connections).
 
 ### Hosts
 | Tool | Description |

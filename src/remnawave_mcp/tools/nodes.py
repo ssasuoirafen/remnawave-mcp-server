@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
@@ -79,12 +81,19 @@ class NodeUuidInput(BaseModel):
 
 class RestartNodeInput(BaseModel):
     uuid: str = Field(..., description="Node UUID")
+    force: bool = Field(
+        True,
+        description=(
+            "Sent as forceRestart (a required body field on panel 2.8.0+): skips the "
+            "panel's config-hash check so XRay restarts even when the config is unchanged."
+        ),
+    )
     force_cycle: bool = Field(
         False,
         description=(
-            "If true, disable then re-enable the node instead of the (broken upstream) "
-            "restart endpoint. Reliably restarts XRay but briefly drops the node's "
-            "active connections."
+            "If true, disable then re-enable the node instead of the restart endpoint. "
+            "Heavier hammer (re-establishes the panel-node connection) but briefly drops "
+            "the node's active connections."
         ),
     )
 
@@ -240,28 +249,45 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def restart_node(params: RestartNodeInput) -> str:
-        """Restart XRay on one node. Default mode uses the panel restart endpoint, which
-        is BROKEN UPSTREAM (node-side processor hardcodes forceRestart=false, so XRay does
-        not restart when the config hash matches). Pass force_cycle=true to disable+enable
-        instead - reliably restarts XRay, briefly drops the node's connections."""
+        """Restart XRay on one node (MUTATES PROD: interrupts the node briefly). Default
+        mode sends forceRestart (panel 2.8.0+ requires it in the body); force=true skips
+        the config-hash check like the UI's restart-all. force_cycle=true disables and
+        re-enables the node instead - heavier, also re-establishes the panel-node link."""
         try:
             if params.force_cycle:
                 await api.request("POST", f"/api/nodes/{params.uuid}/actions/disable")
+                # The panel processes disable asynchronously; enabling immediately can be
+                # reverted by the still-running disable pipeline. Settle, then verify.
+                await asyncio.sleep(3)
                 try:
-                    data = await api.request("POST", f"/api/nodes/{params.uuid}/actions/enable")
+                    await api.request("POST", f"/api/nodes/{params.uuid}/actions/enable")
+                    await asyncio.sleep(2)
+                    node = (await api.request("GET", f"/api/nodes/{params.uuid}"))["response"]
+                    if node.get("isDisabled"):
+                        await api.request("POST", f"/api/nodes/{params.uuid}/actions/enable")
+                        await asyncio.sleep(2)
+                        node = (await api.request("GET", f"/api/nodes/{params.uuid}"))["response"]
                 except Exception as e:
                     return (
                         f"CRITICAL: node {params.uuid} was disabled but re-enable FAILED - "
                         f"the node is OFFLINE. Run remnawave_enable_node for it now. Error: {e}"
                     )
-                return f"Node force-cycled (disable + enable).\n\n{_format_node(data['response'])}"
-            data = await api.request("POST", f"/api/nodes/{params.uuid}/actions/restart")
+                if node.get("isDisabled"):
+                    return (
+                        f"CRITICAL: node {params.uuid} is still DISABLED after two enable "
+                        "attempts. Run remnawave_enable_node for it now."
+                    )
+                return f"Node force-cycled (disable + enable).\n\n{_format_node(node)}"
+            data = await api.request(
+                "POST",
+                f"/api/nodes/{params.uuid}/actions/restart",
+                body={"forceRestart": params.force},
+            )
             if data["response"].get("eventSent"):
                 return (
-                    f"Node {params.uuid} restart event sent. "
-                    "WARNING: this endpoint is broken upstream (start-node processor "
-                    "hardcodes forceRestart=false). If XRay does not actually restart, "
-                    "re-run with force_cycle=true."
+                    f"Node {params.uuid} restart event sent "
+                    f"(forceRestart={str(params.force).lower()}). "
+                    "If XRay does not actually restart, re-run with force_cycle=true."
                 )
             return f"Node restart response: {data['response']}"
         except Exception as e:
