@@ -1,8 +1,8 @@
 # Remnawave MCP Server
 
-## Project Overview <!-- last reviewed: 2026-04-26 -->
+## Project Overview <!-- last reviewed: 2026-07-10 -->
 
-MCP (Model Context Protocol) server for the Remnawave VPN panel API. Written in Python 3.12+ using FastMCP (`mcp[cli]`), httpx, and Pydantic 2.0+.
+MCP (Model Context Protocol) server for the Remnawave VPN panel API. Written in Python 3.12+ using FastMCP (`mcp[cli]`), httpx, and Pydantic 2.0+. Targets panel 2.8.x; carries forward-compat guards for known 2.9.0 breaking changes (see Known Quirks). The panel serves its OpenAPI spec at `/docs-json` (not under `/api`) - verify endpoint shapes there before changing tools.
 
 Python policy: package supports 3.12+ (see `requires-python` and `classifiers`); local development is pinned to 3.14 via `.python-version`. Keep these three in sync when bumping: bump `classifiers` whenever `.python-version` moves to a new minor; bump `requires-python` only when intentionally dropping older versions.
 
@@ -26,14 +26,15 @@ npx @modelcontextprotocol/inspector uv run remnawave-mcp
 - `REMNAWAVE_API_URL` - panel root URL (no `/api` suffix; the client prefixes `/api/...` on every request)
 - `REMNAWAVE_API_USERNAME` - login username
 - `REMNAWAVE_API_PASSWORD` - login password
+- `REMNAWAVE_TLS_VERIFY` - optional; `false`/`0`/`no` disables TLS verification for self-signed panel certs (default: verification on)
 
 ## Architecture
 
 **Entry point**: `src/remnawave_mcp/server.py` - creates FastMCP instance, initializes API client, registers all tool modules.
 
-**API client**: `src/remnawave_mcp/api_client.py` - async HTTP client with bearer token auth and auto-refresh on 401. Provides `request()`, `format_bytes()`, `handle_error()`.
+**API client**: `src/remnawave_mcp/api_client.py` - async HTTP client with bearer token auth and auto-refresh on 401. Provides `request()`, `format_bytes()`, `handle_error()`, and `RemnawaveApiError` (RuntimeError subclass with `.status_code` for tools that branch on HTTP status). `request()` returns `None` for 204/empty-body responses.
 
-**Tool modules**: `src/remnawave_mcp/tools/` - each module exports `register(mcp, api)` that registers `@mcp.tool()` async functions. Modules: users, nodes, system, hosts, squads, subscriptions.
+**Tool modules**: `src/remnawave_mcp/tools/` - each module exports `register(mcp, api)` that registers `@mcp.tool()` async functions. Modules: users, nodes, system, hosts, squads, subscriptions, config_profiles.
 
 ### Tool module pattern
 
@@ -50,11 +51,20 @@ All tools return `str` (markdown). Errors are caught and formatted via `handle_e
 
 ## Known Quirks
 
-- `verify=False` in `api_client.py` - SSL verification disabled for internal panel API. Don't "fix" this without confirming panel has a valid cert.
+- TLS verification is ON by default (the live panel cert was confirmed valid 2026-07-10); `REMNAWAVE_TLS_VERIFY=false` restores the old `verify=False` behavior for self-signed panels.
 - Env vars (`REMNAWAVE_API_URL`, credentials) are validated at import - the client is constructed at module level in `server.py`, so missing vars exit at startup with a clear `Fatal: ...` message on stderr (not deferred to the first tool call).
 - No logging configured - errors only surface as tool return strings via `handle_error()`.
 - API client auto-refreshes bearer token on 401 with a single retry. No backoff.
-- `remnawave_restart_node` (single node) is broken upstream: backend's `start-node.processor.ts` hardcodes `forceRestart: false`, so XRay is not restarted when the config hash matches. Workaround: disable+enable, or use `remnawave_restart_all_nodes` (which sends `forceRestart: true` by default). Re-check upstream periodically; remove the warning once the per-node endpoint accepts a force flag.
+- `remnawave_restart_node` (single node) default mode is broken upstream: backend's `start-node.processor.ts` hardcodes `forceRestart: false`, so XRay is not restarted when the config hash matches. The tool's `force_cycle=true` mode works around it (disable+enable). Re-check upstream periodically; drop `force_cycle` once the per-node endpoint accepts a force flag.
+- Panel 2.8.0 `/api/system/health` returns `runtimeMetrics` (per-process Node.js metrics), not `pm2Stats`. An empty metrics list is rendered with the raw response instead of a "NOT healthy" verdict - the shape has changed before and may change again.
+- `GET /api/users/by-telegram-id/{id}` and `/by-email/{email}` return a LIST of users (multiple accounts can share a telegram id/email) and answer `200` with an empty list on no match (2.8.0).
+
+## 2.9.0 forward-compat guards (in place, verify when the panel upgrades)
+
+- `DELETE` endpoints return 204 with no body → `api_client.request()` returns `None`; delete tools treat that as success.
+- `/api/users/by-telegram-id` and `/by-email` are removed → `get_user` falls back to scanning `/api/users/stream` (exists on 2.8.0 too; capped at 10k users).
+- `GET /api/keygen` renames `pubKey` → `secretKey` → `remnawave_get_keygen` reads either.
+- `/api/ip-control/*` becomes `/api/connections/*` - no tool here uses those endpoints, so no action needed.
 
 ## Testing
 
