@@ -46,39 +46,3 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
             return "\n".join(lines)
         except Exception as e:
             return handle_error(e)
-
-    @mcp.tool(
-        name="remnawave_list_config_profiles",
-        annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
-    )
-    async def list_config_profiles() -> str:
-        """List all XRay config profiles with their inbounds (protocol, transport, port)."""
-        try:
-            profiles_data = await api.request("GET", "/api/config-profiles")
-            inbounds_data = await api.request("GET", "/api/config-profiles/inbounds")
-
-            profiles_resp = profiles_data["response"]
-            inbounds_resp = inbounds_data["response"]
-            profiles = profiles_resp.get("configProfiles", [])
-            inbounds = inbounds_resp.get("inbounds", [])
-            total = profiles_resp.get("total", len(profiles))
-
-            if not profiles:
-                return "No config profiles found."
-
-            lines = [f"# Config Profiles ({total})", ""]
-            for p in profiles:
-                lines.append(f"## {p['name']}")
-                lines.append(f"- **UUID**: {p['uuid']}")
-
-                profile_inbounds = [i for i in inbounds if i.get("profileUuid") == p["uuid"]]
-                if profile_inbounds:
-                    lines.append("- **Inbounds**:")
-                    for ib in profile_inbounds:
-                        network = ib.get("network") or "tcp"
-                        port = ib.get("port") or "default"
-                        lines.append(f"  - {ib['tag']} ({ib['type']}/{network}, port {port}) [{ib['uuid']}]")
-                lines.append("")
-            return "\n".join(lines)
-        except Exception as e:
-            return handle_error(e)

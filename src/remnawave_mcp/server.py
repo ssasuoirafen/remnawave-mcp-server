@@ -5,7 +5,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from .api_client import RemnawaveApiClient
-from .tools import hosts, nodes, squads, subscriptions, system, users
+from .tools import config_profiles, hosts, nodes, squads, subscriptions, system, users
 
 mcp = FastMCP("remnawave-mcp")
 
@@ -21,6 +21,7 @@ hosts.register(mcp, api)
 system.register(mcp, api)
 squads.register(mcp, api)
 subscriptions.register(mcp, api)
+config_profiles.register(mcp, api)
 
 
 def main() -> None:
