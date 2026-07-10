@@ -5,7 +5,39 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
-from ..api_client import RemnawaveApiClient, format_bytes, handle_error
+from ..api_client import RemnawaveApiClient, RemnawaveApiError, format_bytes, handle_error
+
+_STREAM_PAGE_SIZE = 500
+_STREAM_MAX_PAGES = 20  # scan cap: 10k users
+
+
+async def _find_user_via_stream(
+    api: RemnawaveApiClient, telegram_id: str | None = None, email: str | None = None
+) -> dict | None:
+    """2.9.0 removes /by-telegram-id and /by-email; scan /api/users/stream instead."""
+    cursor: str | None = None
+    for _ in range(_STREAM_MAX_PAGES):
+        params: dict = {"size": _STREAM_PAGE_SIZE}
+        if cursor:
+            params["cursor"] = cursor
+        data = await api.request("GET", "/api/users/stream", params=params)
+        resp = data["response"]
+        for u in resp.get("users", []):
+            if (
+                telegram_id is not None
+                and u.get("telegramId") is not None
+                and str(u["telegramId"]) == str(telegram_id)
+            ):
+                return u
+            if email is not None and (u.get("email") or "").lower() == email.lower():
+                return u
+        cursor = resp.get("nextCursor")
+        if not resp.get("hasMore") or not cursor:
+            return None
+    raise RuntimeError(
+        f"user not found within the first {_STREAM_PAGE_SIZE * _STREAM_MAX_PAGES} users "
+        "(stream scan capped)"
+    )
 
 
 def _format_user(u: dict) -> str:
@@ -136,12 +168,35 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
                 path = f"/api/users/by-short-uuid/{params.short_uuid}"
             elif params.username:
                 path = f"/api/users/by-username/{params.username}"
-            elif params.telegram_id:
-                path = f"/api/users/by-telegram-id/{params.telegram_id}"
-            elif params.email:
-                path = f"/api/users/by-email/{params.email}"
+            elif params.telegram_id or params.email:
+                # These endpoints return a LIST of matches on 2.8.0 and are REMOVED in
+                # 2.9.0 - on 404 fall back to scanning /api/users/stream (exists on both).
+                if params.telegram_id:
+                    path = f"/api/users/by-telegram-id/{params.telegram_id}"
+                else:
+                    path = f"/api/users/by-email/{params.email}"
+                try:
+                    data = await api.request("GET", path)
+                    users = data["response"]
+                    if isinstance(users, dict):
+                        users = [users]
+                    if not users:
+                        return "User not found."
+                    return "\n\n".join(_format_user(u) for u in users)
+                except RemnawaveApiError as e:
+                    if e.status_code != 404:
+                        raise
+                    user = await _find_user_via_stream(
+                        api, telegram_id=params.telegram_id, email=params.email
+                    )
+                    if user is None:
+                        return "User not found."
+                    return _format_user(user)
             else:
-                return "Error: Provide at least one identifier (uuid, short_uuid, username, telegram_id, or email)."
+                return (
+                    "Error: Provide at least one identifier "
+                    "(uuid, short_uuid, username, telegram_id, or email)."
+                )
 
             data = await api.request("GET", path)
             return _format_user(data["response"])
@@ -229,7 +284,8 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         """Permanently delete a user by UUID. This action cannot be undone."""
         try:
             data = await api.request("DELETE", f"/api/users/{params.uuid}")
-            if data["response"]["isDeleted"]:
+            # 2.9.0+ returns 204 with no body; 2.8.0 returns {"response": {"isDeleted": bool}}.
+            if data is None or data["response"].get("isDeleted"):
                 return f"User {params.uuid} deleted."
             return f"Failed to delete user {params.uuid}."
         except Exception as e:

@@ -110,3 +110,50 @@ def test_format_node_28_shape():
     assert "cp-1" in out  # active config profile uuid
     assert "vless-in" in out
     assert "test note" in out
+
+
+from remnawave_mcp.tools.users import _find_user_via_stream  # noqa: E402
+
+
+class _StubApi:
+    def __init__(self, pages):
+        self._pages = pages
+        self.calls = 0
+
+    async def request(self, method, path, body=None, params=None):
+        page = self._pages[self.calls]
+        self.calls += 1
+        return {"response": page}
+
+
+async def test_stream_fallback_finds_by_telegram_id():
+    api = _StubApi(
+        [
+            {
+                "users": [{"username": "a", "telegramId": None, "email": None}],
+                "hasMore": True,
+                "nextCursor": "c1",
+            },
+            {
+                "users": [{"username": "b", "telegramId": 42, "email": None}],
+                "hasMore": False,
+                "nextCursor": None,
+            },
+        ]
+    )
+    user = await _find_user_via_stream(api, telegram_id="42")
+    assert user["username"] == "b"
+    assert api.calls == 2
+
+
+async def test_stream_fallback_not_found():
+    api = _StubApi(
+        [
+            {
+                "users": [{"username": "a", "telegramId": 1, "email": "x@y.z"}],
+                "hasMore": False,
+                "nextCursor": None,
+            }
+        ]
+    )
+    assert await _find_user_via_stream(api, email="none@such.tld") is None
