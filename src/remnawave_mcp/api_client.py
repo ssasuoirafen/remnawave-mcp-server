@@ -8,6 +8,14 @@ import httpx
 DEFAULT_TIMEOUT = 30.0
 
 
+class RemnawaveApiError(RuntimeError):
+    """API returned a non-2xx status. Exposes the HTTP status for callers that branch on it."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class RemnawaveApiClient:
     def __init__(self) -> None:
         base_url = os.environ.get("REMNAWAVE_API_URL", "")
@@ -23,10 +31,14 @@ class RemnawaveApiClient:
         self._username = username
         self._password = password
         self._access_token: str | None = None
+        # TLS verification is on by default; set REMNAWAVE_TLS_VERIFY=false for
+        # panels behind self-signed certificates.
+        verify_env = os.environ.get("REMNAWAVE_TLS_VERIFY", "true").strip().lower()
+        self._tls_verify = verify_env not in ("0", "false", "no")
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=DEFAULT_TIMEOUT,
-            verify=False,
+            verify=self._tls_verify,
         )
 
     async def close(self) -> None:
@@ -93,8 +105,11 @@ class RemnawaveApiClient:
                 detail = res.json().get("message", detail)
             except Exception:
                 pass
-            raise RuntimeError(f"API error {res.status_code} {method} {path}: {detail}")
+            raise RemnawaveApiError(res.status_code, f"API error {res.status_code} {method} {path}: {detail}")
 
+        # 2.9.0+ DELETE endpoints return 204 with no body.
+        if res.status_code == 204 or not res.content:
+            return None
         return res.json()
 
 
