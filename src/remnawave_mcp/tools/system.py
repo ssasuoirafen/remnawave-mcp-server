@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+import json
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -8,9 +8,95 @@ from pydantic import BaseModel, Field
 from ..api_client import RemnawaveApiClient, format_bytes, handle_error
 
 
+def _format_health(resp: dict) -> str:
+    metrics = resp.get("runtimeMetrics") or []
+    if not metrics:
+        # The API answered 200 - do not declare the panel dead on an unknown shape.
+        return (
+            "Panel responded, but no runtime metrics were returned. "
+            "The /api/system/health response shape may have changed in this panel version.\n\n"
+            f"Raw response:\n```json\n{json.dumps(resp, indent=2)}\n```"
+        )
+
+    lines = ["# System Health", "", f"{len(metrics)} panel process(es) reporting:", ""]
+    for m in metrics:
+        p99 = m.get("eventLoopP99Ms")
+        p99_str = f"{p99:.2f} ms" if isinstance(p99, (int, float)) else "n/a"
+        uptime = int(m.get("uptime", 0))
+        lines.append(
+            f"- **{m.get('instanceType', 'unknown')}** (pid {m.get('pid', '?')}): "
+            f"RSS {format_bytes(m.get('rss', 0))}, "
+            f"heap {format_bytes(m.get('heapUsed', 0))} / {format_bytes(m.get('heapTotal', 0))}, "
+            f"event loop p99 {p99_str}, up {uptime // 3600}h {(uptime % 3600) // 60}m"
+        )
+    return "\n".join(lines)
+
+
+def _format_bandwidth(resp: dict) -> str:
+    categories = resp.get("categories") or []
+    series = resp.get("series") or []
+    sparkline = resp.get("sparklineData") or []
+    if not series and not sparkline:
+        return "No bandwidth stats available for this range."
+
+    lines = ["# Bandwidth Stats", ""]
+    if categories:
+        lines.append(f"**Range**: {categories[0]} → {categories[-1]} ({len(categories)} days)")
+    lines.append(f"**All nodes total**: {format_bytes(sum(sparkline))}")
+    lines.append("")
+    for s in series:
+        lines.append(f"## {s.get('name', s.get('uuid', 'unknown'))} ({s.get('countryCode', 'XX')})")
+        lines.append(f"- **Total**: {format_bytes(s.get('total', 0))}")
+        daily = s.get("data") or []
+        if categories and len(daily) == len(categories):
+            peak = max(range(len(daily)), key=daily.__getitem__)
+            lines.append(f"- **Peak day**: {categories[peak]} ({format_bytes(daily[peak])})")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _format_node_users_usage(resp: dict) -> str:
+    categories = resp.get("categories") or []
+    sparkline = resp.get("sparklineData") or []
+    top_users = resp.get("topUsers") or []
+    if not sparkline and not top_users:
+        return "No usage recorded for this node in the given range."
+
+    lines = ["# Node Usage (per user)", ""]
+    if categories:
+        lines.append(f"**Range**: {categories[0]} → {categories[-1]}")
+    lines.append(f"**Node total**: {format_bytes(sum(sparkline))}")
+    if categories and len(sparkline) == len(categories):
+        lines.append("")
+        lines.append("## Daily totals")
+        lines.extend(
+            f"- {day}: {format_bytes(val)}"
+            for day, val in zip(categories, sparkline, strict=True)
+        )
+    if top_users:
+        lines.append("")
+        lines.append(f"## Top {len(top_users)} users")
+        lines.extend(
+            f"- **{u.get('username', '?')}**: {format_bytes(u.get('total', 0))}" for u in top_users
+        )
+    return "\n".join(lines)
+
+
 class BandwidthInput(BaseModel):
     start: str = Field(..., description="Start datetime in ISO 8601 (e.g. 2025-03-01T00:00:00.000Z)")
     end: str = Field(..., description="End datetime in ISO 8601 (e.g. 2025-03-15T23:59:59.000Z)")
+    top_nodes_limit: int = Field(
+        default=10, ge=1, le=100, description="Max nodes in the per-node breakdown"
+    )
+
+
+class NodeUsersUsageInput(BaseModel):
+    uuid: str = Field(..., description="Node UUID")
+    start: str = Field(..., description="Start date (e.g. 2026-07-03 or full ISO 8601)")
+    end: str = Field(..., description="End date")
+    top_users_limit: int = Field(
+        default=10, ge=1, le=100, description="Max users in the breakdown"
+    )
 
 
 def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
@@ -62,21 +148,11 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_system_health() -> str:
-        """Check if the Remnawave panel is healthy and responding. Shows PM2 process stats (CPU, memory)."""
+        """Check panel health. Shows Node.js runtime metrics (RSS, heap, event loop lag,
+        uptime) per panel process (api/scheduler/processor)."""
         try:
             data = await api.request("GET", "/api/system/health")
-            processes = data["response"].get("pm2Stats", [])
-
-            if not processes:
-                return "System is NOT healthy: no PM2 processes found."
-
-            lines = ["# System Health", "", "All processes running:", ""]
-            for p in processes:
-                mem_mb = int(p.get("memory", 0)) / 1024 / 1024
-                cpu = p.get("cpu", "?")
-                lines.append(f"- **{p['name']}**: CPU {cpu}%, Memory {mem_mb:.0f} MB")
-
-            return "\n".join(lines)
+            return _format_health(data["response"])
         except Exception as e:
             return handle_error(e)
 
@@ -85,29 +161,62 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_bandwidth_stats(params: BandwidthInput) -> str:
-        """Get bandwidth statistics for all nodes in a time range. Requires start and end dates in ISO 8601."""
+        """Get historical bandwidth for all nodes over a date range: per-node totals,
+        peak days, and the fleet-wide total."""
         try:
             data = await api.request(
                 "GET",
                 "/api/bandwidth-stats/nodes",
-                params={"start": params.start, "end": params.end},
+                params={
+                    "start": params.start,
+                    "end": params.end,
+                    "topNodesLimit": params.top_nodes_limit,
+                },
             )
-            stats = data.get("response", data)
+            return _format_bandwidth(data["response"])
+        except Exception as e:
+            return handle_error(e)
 
-            if not stats:
-                return "No bandwidth stats available."
+    @mcp.tool(
+        name="remnawave_get_node_users_usage",
+        annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+    )
+    async def get_node_users_usage(params: NodeUsersUsageInput) -> str:
+        """Historical per-user traffic on ONE node over a date range (daily totals + top
+        users). Complements remnawave_get_bandwidth_stats (all nodes) and
+        remnawave_get_node_metrics (realtime)."""
+        try:
+            data = await api.request(
+                "GET",
+                f"/api/bandwidth-stats/nodes/{params.uuid}/users",
+                params={
+                    "start": params.start,
+                    "end": params.end,
+                    "topUsersLimit": params.top_users_limit,
+                },
+            )
+            return _format_node_users_usage(data["response"])
+        except Exception as e:
+            return handle_error(e)
 
-            if isinstance(stats, list):
-                lines = ["# Bandwidth Stats", ""]
-                for s in stats:
-                    lines.append(f"## {s.get('name', s.get('nodeName', s.get('uuid', 'unknown')))}")
-                    lines.append(f"- **Total**: {format_bytes(s.get('totalBytes', 0))}")
-                    lines.append(f"- **Upload**: {format_bytes(s.get('uploadBytes', 0))}")
-                    lines.append(f"- **Download**: {format_bytes(s.get('downloadBytes', 0))}")
-                    lines.append("")
-                return "\n".join(lines)
-
-            return f"Bandwidth stats:\n```json\n{stats}\n```"
+    @mcp.tool(
+        name="remnawave_get_keygen",
+        annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+    )
+    async def get_keygen() -> str:
+        """Get the panel's node provisioning key (SECRET_KEY env for remnanode).
+        SENSITIVE: anyone holding this key can connect a node to the panel. Handles both
+        field names: pubKey (<=2.8.x) and secretKey (2.9.0+)."""
+        try:
+            data = await api.request("GET", "/api/keygen")
+            resp = data["response"]
+            key = resp.get("secretKey") or resp.get("pubKey")
+            if not key:
+                return f"Unexpected keygen response shape, keys: {sorted(resp)}"
+            return (
+                f"# Node SECRET_KEY\n\n```\n{key}\n```\n\n"
+                "Use as the SECRET_KEY env var when provisioning a remnanode."
+            )
         except Exception as e:
             return handle_error(e)
 

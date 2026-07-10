@@ -28,11 +28,13 @@ EXPECTED_TOOL_NAMES = {
     "remnawave_disable_node",
     "remnawave_restart_node",
     "remnawave_restart_all_nodes",
-    # system (4)
+    # system (6)
     "remnawave_get_system_stats",
     "remnawave_get_system_health",
     "remnawave_get_bandwidth_stats",
     "remnawave_get_node_metrics",
+    "remnawave_get_node_users_usage",
+    "remnawave_get_keygen",
     # subscriptions (2)
     "remnawave_get_subscription_settings",
     "remnawave_list_config_profiles",
@@ -50,7 +52,7 @@ def _registered_tool_names() -> set[str]:
 
 
 def test_registered_tool_count():
-    assert len(_registered_tool_names()) == 25
+    assert len(_registered_tool_names()) == 27
 
 
 def test_registered_tool_names():
