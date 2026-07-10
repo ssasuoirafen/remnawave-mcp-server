@@ -79,3 +79,34 @@ NODE_USERS = {
 def test_node_users_usage():
     out = _format_node_users_usage(NODE_USERS)
     assert "alice" in out and "300" in out
+
+
+from remnawave_mcp.tools.nodes import _format_node  # noqa: E402
+
+NODE_28 = {
+    "uuid": "n-1",
+    "name": "node-a",
+    "countryCode": "NL",
+    "address": "1.2.3.4",
+    "port": 2222,
+    "isConnected": True,
+    "versions": {"xray": "25.1.1", "node": "2.8.0"},
+    "xrayUptime": 7260,
+    "usersOnline": 3,
+    "note": "test note",
+    "system": {"info": {"cpuModel": "EPYC", "cpus": 2, "memoryTotal": 2147483648}},
+    "configProfile": {
+        "activeConfigProfileUuid": "cp-1",
+        "activeInbounds": [{"tag": "vless-in", "type": "vless", "network": "tcp"}],
+    },
+}
+
+
+def test_format_node_28_shape():
+    out = _format_node(NODE_28)
+    assert "25.1.1" in out  # versions.xray
+    assert "EPYC" in out  # system.info.cpuModel
+    assert "2h 1m" in out  # humanized xrayUptime
+    assert "cp-1" in out  # active config profile uuid
+    assert "vless-in" in out
+    assert "test note" in out

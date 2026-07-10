@@ -21,9 +21,10 @@ EXPECTED_TOOL_NAMES = {
     "remnawave_disable_user",
     "remnawave_revoke_user",
     "remnawave_reset_user_traffic",
-    # nodes (6)
+    # nodes (7)
     "remnawave_list_nodes",
     "remnawave_get_node",
+    "remnawave_update_node",
     "remnawave_enable_node",
     "remnawave_disable_node",
     "remnawave_restart_node",
@@ -58,7 +59,7 @@ def _registered_tool_names() -> set[str]:
 
 
 def test_registered_tool_count():
-    assert len(_registered_tool_names()) == 32
+    assert len(_registered_tool_names()) == 33
 
 
 def test_registered_tool_names():
