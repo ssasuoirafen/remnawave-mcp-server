@@ -51,6 +51,8 @@ All tools return `str` (markdown). Errors are caught and formatted via `handle_e
 
 ## Known Quirks
 
+- **`mcp` is pinned `<2` and must stay pinned** until the code is ported. `mcp` 2.0.0 renamed `FastMCP` to `MCPServer` and moved it out of `mcp.server.fastmcp`, so every `from mcp.server.fastmcp import FastMCP` fails. The local `.venv` hid this (the lockfile held 1.x) while fresh `uvx --from git+...` installs - how the xray-vpn project consumes this server - resolved 2.0.0 and crashed at import. Local tests passing is NOT evidence that a `uvx` install works; verify with `uvx --refresh --from git+<repo> remnawave-mcp` after dependency changes.
+
 - TLS verification is ON by default (the live panel cert was confirmed valid 2026-07-10); `REMNAWAVE_TLS_VERIFY=false` restores the old `verify=False` behavior for self-signed panels.
 - Env vars (`REMNAWAVE_API_URL`, credentials) are validated at import - the client is constructed at module level in `server.py`, so missing vars exit at startup with a clear `Fatal: ...` message on stderr (not deferred to the first tool call).
 - No logging configured - errors only surface as tool return strings via `handle_error()`.
