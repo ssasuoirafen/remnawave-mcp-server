@@ -1,8 +1,8 @@
 # Remnawave MCP Server
 
-## Project Overview <!-- last reviewed: 2026-07-10 -->
+## Project Overview <!-- last reviewed: 2026-08-07 -->
 
-MCP (Model Context Protocol) server for the Remnawave VPN panel API. Written in Python 3.12+ using FastMCP (`mcp[cli]`), httpx, and Pydantic 2.0+. Targets panel 2.8.x; carries forward-compat guards for known 2.9.0 breaking changes (see Known Quirks). The panel serves its OpenAPI spec at `/docs-json` (not under `/api`) - verify endpoint shapes there before changing tools.
+MCP (Model Context Protocol) server for the Remnawave VPN panel API. Written in Python 3.12+ using FastMCP (`mcp[cli]`), httpx, and Pydantic 2.0+. Targets panel 3.2.x (verified live against 3.2.1 on 2026-08-07; see "3.x compatibility"). The panel no longer serves an OpenAPI spec: `/docs-json` returns the SPA HTML on 3.x (docs config was removed from env) - verify endpoint shapes empirically against the live panel or the `remnawave/backend` source at the deployed tag.
 
 Python policy: package supports 3.12+ (see `requires-python` and `classifiers`); local development is pinned to 3.14 via `.python-version`. Keep these three in sync when bumping: bump `classifiers` whenever `.python-version` moves to a new minor; bump `requires-python` only when intentionally dropping older versions.
 
@@ -55,17 +55,19 @@ All tools return `str` (markdown). Errors are caught and formatted via `handle_e
 - Env vars (`REMNAWAVE_API_URL`, credentials) are validated at import - the client is constructed at module level in `server.py`, so missing vars exit at startup with a clear `Fatal: ...` message on stderr (not deferred to the first tool call).
 - No logging configured - errors only surface as tool return strings via `handle_error()`.
 - API client auto-refreshes bearer token on 401 with a single retry. No backoff.
-- The old single-node restart upstream bug (hardcoded `forceRestart: false`) is FIXED on panel 2.8.0: `POST /api/nodes/{uuid}/actions/restart` now REQUIRES `{"forceRestart": bool}` in the body (calls without a body get 400 "Validation failed") and honors it - verified live 2026-07-10 (`xrayUptime` reset after `forceRestart=true`). The tool sends it by default; `force_cycle=true` (disable+enable) remains as a heavier fallback.
+- The old single-node restart upstream bug (hardcoded `forceRestart: false`) is FIXED on panel 2.8.0: `POST /api/nodes/{uuid}/actions/restart` now REQUIRES `{"forceRestart": bool}` in the body (calls without a body get 400 "Validation failed") and honors it - verified live 2026-07-10 on 2.8.0 (`xrayUptime` reset after `forceRestart=true`; not yet re-verified on 3.x). The tool sends it by default; `force_cycle=true` (disable+enable) remains as a heavier fallback.
 - Enable immediately after disable races the panel's async disable pipeline - the enable returns 200 but `isDisabled` can revert to true. `restart_node force_cycle` therefore sleeps between the calls and verifies/retries the enable; keep that pattern for any future disable→enable sequence.
-- Panel 2.8.0 `/api/system/health` returns `runtimeMetrics` (per-process Node.js metrics), not `pm2Stats`. An empty metrics list is rendered with the raw response instead of a "NOT healthy" verdict - the shape has changed before and may change again.
-- `GET /api/users/by-telegram-id/{id}` and `/by-email/{email}` return a LIST of users (multiple accounts can share a telegram id/email) and answer `200` with an empty list on no match (2.8.0).
+- `/api/system/health` returns `runtimeMetrics` (per-process Node.js metrics), not `pm2Stats` - same shape on 2.8.0 and 3.2.1. An empty metrics list is rendered with the raw response instead of a "NOT healthy" verdict - the shape has changed before and may change again.
 
-## 2.9.0 forward-compat guards (in place, verify when the panel upgrades)
+## 3.x compatibility (verified live against 3.2.1 on 2026-08-07)
 
-- `DELETE` endpoints return 204 with no body → `api_client.request()` returns `None`; delete tools treat that as success.
-- `/api/users/by-telegram-id` and `/by-email` are removed → `get_user` falls back to scanning `/api/users/stream` (exists on 2.8.0 too; capped at 10k users).
-- `GET /api/keygen` renames `pubKey` → `secretKey` → `remnawave_get_keygen` reads either.
-- `/api/ip-control/*` becomes `/api/connections/*` - no tool here uses those endpoints, so no action needed.
+- **Users are keyed by numeric `id`** - the user `uuid` column is gone (`drop_user_uuid` DB migration). All user tools take `id`; `_format_user` prints `ID`, not UUID. `by-short-uuid`/`by-username` routes still work. PATCH `/api/users` takes `{"id": int, ...}`; renaming via PATCH is not supported by the tools (username is a lookup key only).
+- `GET /api/users/by-telegram-id/{id}` and `/by-email/{email}` are REMOVED (404) → `get_user` goes straight to scanning `/api/users/stream` (capped at 10k users).
+- User actions (`enable`/`disable`/`revoke`/`reset-traffic`) live at `/api/users/{id}/actions/*` and return the full user object. `DELETE /api/users/{id}` returns 204 with no body.
+- `GET /api/nodes` and `GET /api/hosts` return the list DIRECTLY in `response` (no nested `{nodes: []}` wrapper). `internal-squads`/`external-squads`/`config-profiles` keep their `{<name>, total}` wrappers. Nodes still expose `versions.{xray,node}` and keep their `uuid` (plus a new `id`).
+- `GET /api/bandwidth-stats/nodes` validates `start`/`end` as plain `YYYY-MM-DD` dates and 400s on ISO datetimes; the tools truncate inputs to the date part.
+- `/api/subscription-settings` was reshaped: `profileTitle`/`profileUpdateInterval`/`supportLink`/`happRouting` are gone from the top level; the object now carries `customRemarks` (per-state string lists), `customResponseHeaders` (dict, incl. the Happ routing deeplink), `hwidSettings`, `responseRules`, `randomizeHosts`.
+- `GET /api/keygen` returns BOTH `pubKey` and `secretKey` on 3.2.1; the tool prefers `secretKey`.
 
 ## Testing
 

@@ -5,7 +5,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
-from ..api_client import RemnawaveApiClient, RemnawaveApiError, format_bytes, handle_error
+from ..api_client import RemnawaveApiClient, format_bytes, handle_error
 
 _STREAM_PAGE_SIZE = 500
 _STREAM_MAX_PAGES = 20  # scan cap: 10k users
@@ -14,7 +14,7 @@ _STREAM_MAX_PAGES = 20  # scan cap: 10k users
 async def _find_user_via_stream(
     api: RemnawaveApiClient, telegram_id: str | None = None, email: str | None = None
 ) -> dict | None:
-    """2.9.0 removes /by-telegram-id and /by-email; scan /api/users/stream instead."""
+    """3.x removed /by-telegram-id and /by-email; scan /api/users/stream instead."""
     cursor: str | None = None
     for _ in range(_STREAM_MAX_PAGES):
         params: dict = {"size": _STREAM_PAGE_SIZE}
@@ -43,7 +43,7 @@ async def _find_user_via_stream(
 def _format_user(u: dict) -> str:
     lines = [
         f"## {u['username']} ({u['shortUuid']})",
-        f"- **UUID**: {u['uuid']}",
+        f"- **ID**: {u['id']}",
         f"- **Status**: {u['status']}",
         f"- **Expires**: {u['expireAt']}",
     ]
@@ -87,7 +87,7 @@ class ListUsersInput(BaseModel):
 
 
 class GetUserInput(BaseModel):
-    uuid: Optional[str] = Field(default=None, description="User UUID")
+    id: Optional[int] = Field(default=None, description="Numeric user id (3.x primary key)")
     short_uuid: Optional[str] = Field(default=None, description="User short UUID")
     username: Optional[str] = Field(default=None, description="Username")
     telegram_id: Optional[str] = Field(default=None, description="Telegram user ID")
@@ -109,8 +109,11 @@ class CreateUserInput(BaseModel):
 
 
 class UpdateUserInput(BaseModel):
-    uuid: Optional[str] = Field(default=None, description="User UUID (preferred)")
-    username: Optional[str] = Field(default=None, description="Username (identifier if no uuid)")
+    id: Optional[int] = Field(default=None, description="Numeric user id (preferred)")
+    username: Optional[str] = Field(
+        default=None,
+        description="Username to look up the user when id is not given (renaming is not supported)",
+    )
     status: Optional[str] = Field(default=None, description="ACTIVE or DISABLED")
     expire_at: Optional[str] = Field(default=None, description="New expiration date (ISO 8601)")
     traffic_limit_bytes: Optional[int] = Field(default=None, description="Traffic limit in bytes", ge=0)
@@ -123,8 +126,8 @@ class UpdateUserInput(BaseModel):
     active_internal_squads: Optional[list[str]] = Field(default=None, description="Internal squad UUIDs")
 
 
-class UserUuidInput(BaseModel):
-    uuid: str = Field(..., description="UUID of the user")
+class UserIdInput(BaseModel):
+    id: int = Field(..., description="Numeric user id")
 
 
 def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
@@ -160,42 +163,27 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_user(params: GetUserInput) -> str:
-        """Get a single user by UUID, shortUuid, username, telegram ID, or email. Specify exactly one identifier."""
+        """Get a single user by numeric id, shortUuid, username, telegram ID, or email.
+        Specify exactly one identifier."""
         try:
-            if params.uuid:
-                path = f"/api/users/{params.uuid}"
+            if params.id is not None:
+                path = f"/api/users/{params.id}"
             elif params.short_uuid:
                 path = f"/api/users/by-short-uuid/{params.short_uuid}"
             elif params.username:
                 path = f"/api/users/by-username/{params.username}"
             elif params.telegram_id or params.email:
-                # These endpoints return a LIST of matches on 2.8.0 and are REMOVED in
-                # 2.9.0 - on 404 fall back to scanning /api/users/stream (exists on both).
-                if params.telegram_id:
-                    path = f"/api/users/by-telegram-id/{params.telegram_id}"
-                else:
-                    path = f"/api/users/by-email/{params.email}"
-                try:
-                    data = await api.request("GET", path)
-                    users = data["response"]
-                    if isinstance(users, dict):
-                        users = [users]
-                    if not users:
-                        return "User not found."
-                    return "\n\n".join(_format_user(u) for u in users)
-                except RemnawaveApiError as e:
-                    if e.status_code != 404:
-                        raise
-                    user = await _find_user_via_stream(
-                        api, telegram_id=params.telegram_id, email=params.email
-                    )
-                    if user is None:
-                        return "User not found."
-                    return _format_user(user)
+                # 3.x removed /by-telegram-id and /by-email - scan /api/users/stream.
+                user = await _find_user_via_stream(
+                    api, telegram_id=params.telegram_id, email=params.email
+                )
+                if user is None:
+                    return "User not found."
+                return _format_user(user)
             else:
                 return (
                     "Error: Provide at least one identifier "
-                    "(uuid, short_uuid, username, telegram_id, or email)."
+                    "(id, short_uuid, username, telegram_id, or email)."
                 )
 
             data = await api.request("GET", path)
@@ -240,16 +228,18 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def update_user(params: UpdateUserInput) -> str:
-        """Update an existing user. Identify by UUID (preferred) or username. Only provided fields will be changed."""
+        """Update an existing user. Identify by numeric id (preferred) or username.
+        Only provided fields will be changed."""
         try:
-            if not params.uuid and not params.username:
-                return "Error: Provide uuid or username to identify the user."
+            if params.id is None and not params.username:
+                return "Error: Provide id or username to identify the user."
 
-            body: dict = {}
-            if params.uuid:
-                body["uuid"] = params.uuid
-            if params.username is not None:
-                body["username"] = params.username
+            user_id = params.id
+            if user_id is None:
+                found = await api.request("GET", f"/api/users/by-username/{params.username}")
+                user_id = found["response"]["id"]
+
+            body: dict = {"id": user_id}
             if params.status:
                 body["status"] = params.status
             if params.expire_at:
@@ -280,14 +270,14 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         name="remnawave_delete_user",
         annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
     )
-    async def delete_user(params: UserUuidInput) -> str:
-        """Permanently delete a user by UUID. This action cannot be undone."""
+    async def delete_user(params: UserIdInput) -> str:
+        """Permanently delete a user by numeric id. This action cannot be undone."""
         try:
-            data = await api.request("DELETE", f"/api/users/{params.uuid}")
-            # 2.9.0+ returns 204 with no body; 2.8.0 returns {"response": {"isDeleted": bool}}.
+            data = await api.request("DELETE", f"/api/users/{params.id}")
+            # 3.x returns 204 with no body (verified live on 3.2.1).
             if data is None or data["response"].get("isDeleted"):
-                return f"User {params.uuid} deleted."
-            return f"Failed to delete user {params.uuid}."
+                return f"User {params.id} deleted."
+            return f"Failed to delete user {params.id}."
         except Exception as e:
             return handle_error(e)
 
@@ -295,10 +285,10 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         name="remnawave_enable_user",
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
-    async def enable_user(params: UserUuidInput) -> str:
+    async def enable_user(params: UserIdInput) -> str:
         """Enable a disabled user account, restoring VPN access."""
         try:
-            data = await api.request("POST", f"/api/users/{params.uuid}/actions/enable")
+            data = await api.request("POST", f"/api/users/{params.id}/actions/enable")
             return f"User enabled.\n\n{_format_user(data['response'])}"
         except Exception as e:
             return handle_error(e)
@@ -307,10 +297,10 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         name="remnawave_disable_user",
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
-    async def disable_user(params: UserUuidInput) -> str:
+    async def disable_user(params: UserIdInput) -> str:
         """Disable a user account, suspending VPN access. Can be re-enabled later."""
         try:
-            data = await api.request("POST", f"/api/users/{params.uuid}/actions/disable")
+            data = await api.request("POST", f"/api/users/{params.id}/actions/disable")
             return f"User disabled.\n\n{_format_user(data['response'])}"
         except Exception as e:
             return handle_error(e)
@@ -319,10 +309,10 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         name="remnawave_revoke_user",
         annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
     )
-    async def revoke_user(params: UserUuidInput) -> str:
+    async def revoke_user(params: UserIdInput) -> str:
         """Revoke a user's subscription, regenerating their credentials. Old subscription links stop working."""
         try:
-            data = await api.request("POST", f"/api/users/{params.uuid}/actions/revoke")
+            data = await api.request("POST", f"/api/users/{params.id}/actions/revoke")
             return f"User subscription revoked.\n\n{_format_user(data['response'])}"
         except Exception as e:
             return handle_error(e)
@@ -331,10 +321,10 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         name="remnawave_reset_user_traffic",
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
-    async def reset_user_traffic(params: UserUuidInput) -> str:
+    async def reset_user_traffic(params: UserIdInput) -> str:
         """Reset a user's traffic counter to zero."""
         try:
-            data = await api.request("POST", f"/api/users/{params.uuid}/actions/reset-traffic")
+            data = await api.request("POST", f"/api/users/{params.id}/actions/reset-traffic")
             return f"Traffic reset.\n\n{_format_user(data['response'])}"
         except Exception as e:
             return handle_error(e)

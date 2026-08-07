@@ -82,9 +82,12 @@ def _format_node_users_usage(resp: dict) -> str:
     return "\n".join(lines)
 
 
+_DATE_DESC = "date YYYY-MM-DD (a full ISO datetime is truncated to its date part)"
+
+
 class BandwidthInput(BaseModel):
-    start: str = Field(..., description="Start datetime in ISO 8601 (e.g. 2025-03-01T00:00:00.000Z)")
-    end: str = Field(..., description="End datetime in ISO 8601 (e.g. 2025-03-15T23:59:59.000Z)")
+    start: str = Field(..., description=f"Start {_DATE_DESC}")
+    end: str = Field(..., description=f"End {_DATE_DESC}")
     top_nodes_limit: int = Field(
         default=10, ge=1, le=100, description="Max nodes in the per-node breakdown"
     )
@@ -92,8 +95,8 @@ class BandwidthInput(BaseModel):
 
 class NodeUsersUsageInput(BaseModel):
     uuid: str = Field(..., description="Node UUID")
-    start: str = Field(..., description="Start date (e.g. 2026-07-03 or full ISO 8601)")
-    end: str = Field(..., description="End date")
+    start: str = Field(..., description=f"Start {_DATE_DESC}")
+    end: str = Field(..., description=f"End {_DATE_DESC}")
     top_users_limit: int = Field(
         default=10, ge=1, le=100, description="Max users in the breakdown"
     )
@@ -168,8 +171,9 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
                 "GET",
                 "/api/bandwidth-stats/nodes",
                 params={
-                    "start": params.start,
-                    "end": params.end,
+                    # 3.x validates these as plain dates and rejects ISO datetimes.
+                    "start": params.start[:10],
+                    "end": params.end[:10],
                     "topNodesLimit": params.top_nodes_limit,
                 },
             )
@@ -190,8 +194,8 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
                 "GET",
                 f"/api/bandwidth-stats/nodes/{params.uuid}/users",
                 params={
-                    "start": params.start,
-                    "end": params.end,
+                    "start": params.start[:10],
+                    "end": params.end[:10],
                     "topUsersLimit": params.top_users_limit,
                 },
             )

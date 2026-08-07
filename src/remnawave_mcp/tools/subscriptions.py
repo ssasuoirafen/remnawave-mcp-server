@@ -1,8 +1,53 @@
 from __future__ import annotations
 
+import json
+
 from mcp.server.fastmcp import FastMCP
 
 from ..api_client import RemnawaveApiClient, handle_error
+
+
+def _fmt_val(v: object, limit: int = 100) -> str:
+    s = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+    return s[:limit] + ("..." if len(s) > limit else "")
+
+
+def _format_settings(s: dict) -> str:
+    lines = [
+        "# Subscription Settings",
+        "",
+        f"- **UUID**: {s.get('uuid', '?')}",
+        f"- **Serve JSON at base subscription**: {s.get('serveJsonAtBaseSubscription', False)}",
+        f"- **Randomize hosts**: {s.get('randomizeHosts', False)}",
+        f"- **Show custom remarks**: {s.get('isShowCustomRemarks', False)}",
+    ]
+
+    remarks = s.get("customRemarks") or {}
+    if remarks:
+        lines += ["", "## Custom remarks (per user state)"]
+        for state, msgs in remarks.items():
+            joined = " / ".join(msgs) if isinstance(msgs, list) else str(msgs)
+            lines.append(f"- **{state}**: {joined}")
+
+    headers = s.get("customResponseHeaders") or {}
+    if headers:
+        lines += ["", "## Custom response headers"]
+        if isinstance(headers, dict):
+            lines.extend(f"- **{k}**: {_fmt_val(v)}" for k, v in headers.items())
+        else:
+            lines.append(f"- {_fmt_val(headers)}")
+
+    hwid = s.get("hwidSettings")
+    if hwid:
+        dumped = json.dumps(hwid, ensure_ascii=False, indent=2)
+        lines += ["", "## HWID settings", "```json", dumped, "```"]
+
+    rules = s.get("responseRules")
+    if rules:
+        count = len(rules) if isinstance(rules, list) else "?"
+        lines += ["", f"## Response rules ({count})", "```json", _fmt_val(rules, 1500), "```"]
+
+    return "\n".join(lines)
 
 
 def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
@@ -12,37 +57,10 @@ def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_subscription_settings() -> str:
-        """Get global subscription settings: profile title, update interval, support link, Happ routing, custom headers."""
+        """Get global subscription settings: base-subscription behavior, per-state custom
+        remarks, custom response headers (incl. Happ routing), HWID settings, response rules."""
         try:
             data = await api.request("GET", "/api/subscription-settings")
-            s = data["response"]
-            lines = [
-                "# Subscription Settings",
-                "",
-                f"- **Profile title**: {s.get('profileTitle', 'N/A')}",
-                f"- **Update interval**: {s.get('profileUpdateInterval', 'N/A')} hours",
-                f"- **Support link**: {s.get('supportLink') or 'not set'}",
-                f"- **JSON at base subscription**: {s.get('serveJsonAtBaseSubscription', False)}",
-                f"- **Username in base subscription**: {s.get('addUsernameToBaseSubscription', False)}",
-            ]
-
-            webpage_enabled = s.get("isProfileWebpageUrlEnabled", False)
-            webpage_url = s.get("profileWebpageUrl")
-            lines.append(f"- **Profile webpage URL**: {webpage_url if webpage_enabled and webpage_url else 'disabled'}")
-
-            if s.get("happRouting"):
-                lines.append(f"- **Happ routing**: {s['happRouting']}")
-            if s.get("happAdsTag"):
-                lines.append(f"- **Happ ads tag**: {s['happAdsTag']}")
-
-            headers = s.get("customResponseHeaders", [])
-            if headers:
-                lines.append(f"- **Custom headers**: {', '.join(headers)}")
-
-            remarks = s.get("expiredUsersRemarks", [])
-            if remarks:
-                lines.append(f"- **Expired user remarks**: {', '.join(remarks)}")
-
-            return "\n".join(lines)
+            return _format_settings(data["response"])
         except Exception as e:
             return handle_error(e)

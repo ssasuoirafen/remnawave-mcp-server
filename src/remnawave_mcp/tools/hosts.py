@@ -43,7 +43,11 @@ def _format_host(h: dict) -> str:
 
     nodes = h.get("nodes", [])
     if nodes:
-        lines.append(f"- **Nodes**: {', '.join(nodes)}")
+        parts = [
+            (n.get("name") or n.get("uuid") or "?") if isinstance(n, dict) else str(n)
+            for n in nodes
+        ]
+        lines.append(f"- **Nodes**: {', '.join(parts)}")
 
     return "\n".join(lines)
 

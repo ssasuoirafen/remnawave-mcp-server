@@ -1,4 +1,4 @@
-"""Formatter unit tests against synthetic 2.8.0-shaped payloads (no real user data)."""
+"""Formatter unit tests against synthetic 3.x-shaped payloads (no real user data)."""
 
 import os
 
@@ -112,7 +112,28 @@ def test_format_node_28_shape():
     assert "test note" in out
 
 
-from remnawave_mcp.tools.users import _find_user_via_stream  # noqa: E402
+from remnawave_mcp.tools.users import _find_user_via_stream, _format_user  # noqa: E402
+
+USER_3X = {
+    "id": 24,
+    "shortUuid": "shrt123",
+    "username": "alice",
+    "status": "ACTIVE",
+    "expireAt": "2027-01-01T00:00:00.000Z",
+    "trafficLimitBytes": 0,
+    "createdAt": "2026-06-08T05:08:43.387Z",
+    "activeInternalSquads": [{"uuid": "sq-1", "name": "users"}],
+    "userTraffic": {"usedTrafficBytes": 1024, "lifetimeUsedTrafficBytes": 2048},
+    "subscriptionUrl": "https://sub.test/shrt123",
+}
+
+
+def test_format_user_3x_shape():
+    out = _format_user(USER_3X)
+    assert "alice" in out and "shrt123" in out
+    assert "**ID**: 24" in out  # 3.x dropped user uuid; numeric id is the key
+    assert "users" in out  # squad name
+    assert "1.00 KB" in out
 
 
 class _StubApi:
