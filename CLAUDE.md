@@ -2,7 +2,7 @@
 
 ## Project Overview <!-- last reviewed: 2026-08-07 -->
 
-MCP (Model Context Protocol) server for the Remnawave VPN panel API. Written in Python 3.12+ using FastMCP (`mcp[cli]`), httpx, and Pydantic 2.0+. Targets panel 3.2.x (verified live against 3.2.1 on 2026-08-07; see "3.x compatibility"). The panel no longer serves an OpenAPI spec: `/docs-json` returns the SPA HTML on 3.x (docs config was removed from env) - verify endpoint shapes empirically against the live panel or the `remnawave/backend` source at the deployed tag.
+MCP (Model Context Protocol) server for the Remnawave VPN panel API. Written in Python 3.12+ using the `mcp[cli]` 2.x SDK (`MCPServer`, formerly `FastMCP`), httpx, and Pydantic 2.0+. Targets panel 3.2.x (verified live against 3.2.1 on 2026-08-07; see "3.x compatibility"). The panel no longer serves an OpenAPI spec: `/docs-json` returns the SPA HTML on 3.x (docs config was removed from env) - verify endpoint shapes empirically against the live panel or the `remnawave/backend` source at the deployed tag.
 
 Python policy: package supports 3.12+ (see `requires-python` and `classifiers`); local development is pinned to 3.14 via `.python-version`. Keep these three in sync when bumping: bump `classifiers` whenever `.python-version` moves to a new minor; bump `requires-python` only when intentionally dropping older versions.
 
@@ -30,7 +30,7 @@ npx @modelcontextprotocol/inspector uv run remnawave-mcp
 
 ## Architecture
 
-**Entry point**: `src/remnawave_mcp/server.py` - creates FastMCP instance, initializes API client, registers all tool modules.
+**Entry point**: `src/remnawave_mcp/server.py` - creates the `MCPServer` instance, initializes API client, registers all tool modules.
 
 **API client**: `src/remnawave_mcp/api_client.py` - async HTTP client with bearer token auth and auto-refresh on 401. Provides `request()`, `format_bytes()`, `handle_error()`, and `RemnawaveApiError` (RuntimeError subclass with `.status_code` for tools that branch on HTTP status). `request()` returns `None` for 204/empty-body responses.
 
@@ -51,7 +51,8 @@ All tools return `str` (markdown). Errors are caught and formatted via `handle_e
 
 ## Known Quirks
 
-- **`mcp` is pinned `<2` and must stay pinned** until the code is ported. `mcp` 2.0.0 renamed `FastMCP` to `MCPServer` and moved it out of `mcp.server.fastmcp`, so every `from mcp.server.fastmcp import FastMCP` fails. The local `.venv` hid this (the lockfile held 1.x) while fresh `uvx --from git+...` installs - how the xray-vpn project consumes this server - resolved 2.0.0 and crashed at import. Local tests passing is NOT evidence that a `uvx` install works; verify with `uvx --refresh --from git+<repo> remnawave-mcp` after dependency changes.
+- **The `mcp` major must stay bounded** (`mcp[cli]>=2.0.0,<3`). An unbounded spec is what broke this server once already: `mcp` 2.0.0 renamed `FastMCP` to `MCPServer` and dropped `mcp.server.fastmcp` entirely (no alias, no deprecation shim), so fresh `uvx` installs resolved 2.0.0 and crashed at import while the pinned local `.venv` kept passing tests. **Local tests passing is NOT evidence that a `uvx` install works** - the lockfile and the resolver disagree. After ANY dependency change, verify the real consumer path with `uvx --refresh --from git+<repo> remnawave-mcp` and a full initialize + tools/list handshake.
+- On mcp 2.x the `@mcp.tool()` decorator still accepts a plain `annotations` dict (coerced to `ToolAnnotations`), and `mcp.run()` still defaults to stdio, so the port was import-and-typename only. `mcp.call_tool()` now returns a `CallToolResult` (`.content`, `.is_error`, `.structured_content`) rather than a bare content list - relevant to any harness that drives tools in-process.
 
 - TLS verification is ON by default (the live panel cert was confirmed valid 2026-07-10); `REMNAWAVE_TLS_VERIFY=false` restores the old `verify=False` behavior for self-signed panels.
 - Env vars (`REMNAWAVE_API_URL`, credentials) are validated at import - the client is constructed at module level in `server.py`, so missing vars exit at startup with a clear `Fatal: ...` message on stderr (not deferred to the first tool call).

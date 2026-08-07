@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from ..api_client import RemnawaveApiClient, format_bytes, handle_error
@@ -142,7 +142,7 @@ class RestartAllNodesInput(BaseModel):
     )
 
 
-def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
+def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
 
     @mcp.tool(
         name="remnawave_list_nodes",

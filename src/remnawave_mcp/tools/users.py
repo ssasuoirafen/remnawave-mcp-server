@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from ..api_client import RemnawaveApiClient, format_bytes, handle_error
@@ -130,7 +130,7 @@ class UserIdInput(BaseModel):
     id: int = Field(..., description="Numeric user id")
 
 
-def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
+def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
 
     @mcp.tool(
         name="remnawave_list_users",

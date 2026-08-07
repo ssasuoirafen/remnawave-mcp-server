@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .api_client import RemnawaveApiClient
 from .tools import config_profiles, hosts, nodes, squads, subscriptions, system, users
 
-mcp = FastMCP("remnawave-mcp")
+mcp = MCPServer("remnawave-mcp")
 
 try:
     api = RemnawaveApiClient()

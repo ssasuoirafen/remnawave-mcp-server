@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from ..api_client import RemnawaveApiClient, handle_error
@@ -18,7 +18,7 @@ class UpdateInternalSquadInput(BaseModel):
     )
 
 
-def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
+def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
 
     @mcp.tool(
         name="remnawave_list_internal_squads",

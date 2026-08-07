@@ -55,13 +55,15 @@ EXPECTED_TOOL_NAMES = {
 }
 
 
-def _registered_tool_names() -> set[str]:
-    return {tool.name for tool in server.mcp._tool_manager.list_tools()}
+async def _registered_tool_names() -> set[str]:
+    # Public API on purpose: the private _tool_manager is exactly the kind of internal
+    # that shifts under a major SDK bump.
+    return {tool.name for tool in await server.mcp.list_tools()}
 
 
-def test_registered_tool_count():
-    assert len(_registered_tool_names()) == 34
+async def test_registered_tool_count():
+    assert len(await _registered_tool_names()) == 34
 
 
-def test_registered_tool_names():
-    assert _registered_tool_names() == EXPECTED_TOOL_NAMES
+async def test_registered_tool_names():
+    assert await _registered_tool_names() == EXPECTED_TOOL_NAMES

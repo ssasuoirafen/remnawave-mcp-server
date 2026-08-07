@@ -1,6 +1,6 @@
 [project]
 name = "remnawave-mcp-server"
-version = "1.1.0"
+version = "1.2.0"
 description = "MCP server for Remnawave panel API - manage users, nodes, hosts, and system via Claude Code or any MCP client"
 requires-python = ">=3.12"
 license = "MIT"
@@ -15,9 +15,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    # Upper bound is load-bearing: mcp 2.0.0 renamed FastMCP to MCPServer and moved it
-    # out of mcp.server.fastmcp, so an unbounded resolve breaks every uvx install.
-    "mcp[cli]>=1.6.0,<2",
+    # Keep the major bounded. mcp 2.0.0 renamed FastMCP to MCPServer and moved it out of
+    # mcp.server.fastmcp; an unbounded spec let a major bump break every uvx install.
+    "mcp[cli]>=2.0.0,<3",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
 ]

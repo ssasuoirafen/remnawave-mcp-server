@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from ..api_client import RemnawaveApiClient, format_bytes, handle_error
@@ -102,7 +102,7 @@ class NodeUsersUsageInput(BaseModel):
     )
 
 
-def register(mcp: FastMCP, api: RemnawaveApiClient) -> None:
+def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
 
     @mcp.tool(
         name="remnawave_get_system_stats",
