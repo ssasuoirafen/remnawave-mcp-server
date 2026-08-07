@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import sys
+from importlib.metadata import PackageNotFoundError, version
 
 from mcp.server.mcpserver import MCPServer
 
 from .api_client import RemnawaveApiClient
 from .tools import config_profiles, hosts, nodes, squads, subscriptions, system, users
 
-mcp = MCPServer("remnawave-mcp")
+try:
+    _VERSION = version("remnawave-mcp-server")
+except PackageNotFoundError:  # running from a source tree without an install
+    _VERSION = "0.0.0+dev"
+
+# mcp 2.x defaults version to "" (1.x reported the SDK's own version), so set it
+# explicitly or clients see a blank version in serverInfo.
+mcp = MCPServer("remnawave-mcp", version=_VERSION)
 
 try:
     api = RemnawaveApiClient()
