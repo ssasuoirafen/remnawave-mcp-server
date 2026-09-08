@@ -20,6 +20,7 @@ dist/
 .local/
 
 # AI tooling
-CLAUDE.local.md
+.claude/memory/
 .claude/settings.local.json
 .mcp.json
+CLAUDE.local.md
