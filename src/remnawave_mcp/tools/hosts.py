@@ -150,7 +150,8 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_host(params: HostUuidInput) -> str:
-        """Get detailed info about a single host by UUID."""
+        """Get one host by UUID: the same fields remnawave_list_hosts shows per host,
+        fetched fresh."""
         try:
             data = await api.request("GET", f"/api/hosts/{params.uuid}")
             return _format_host(data["response"])

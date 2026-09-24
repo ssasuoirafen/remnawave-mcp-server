@@ -87,7 +87,7 @@ class ListUsersInput(BaseModel):
 
 
 class GetUserInput(BaseModel):
-    id: Optional[int] = Field(default=None, description="Numeric user id (3.x primary key)")
+    id: Optional[int] = Field(default=None, description="Numeric user id")
     short_uuid: Optional[str] = Field(default=None, description="User short UUID")
     username: Optional[str] = Field(default=None, description="Username")
     telegram_id: Optional[str] = Field(default=None, description="Telegram user ID")
@@ -96,7 +96,10 @@ class GetUserInput(BaseModel):
 
 class CreateUserInput(BaseModel):
     username: str = Field(..., description="Unique username (3-36 chars)", min_length=3, max_length=36, pattern=r"^[a-zA-Z0-9_-]+$")
-    expire_at: str = Field(..., description="Expiration date in ISO 8601 (e.g. 2025-12-31T23:59:59.000Z)")
+    expire_at: str = Field(
+        ...,
+        description="Expiration time, ISO 8601 UTC with milliseconds: YYYY-MM-DDTHH:MM:SS.000Z",
+    )
     status: Optional[str] = Field(default=None, description="Initial status: ACTIVE or DISABLED")
     traffic_limit_bytes: Optional[int] = Field(default=None, description="Traffic limit in bytes, 0 = unlimited", ge=0)
     traffic_limit_strategy: Optional[str] = Field(default=None, description="Reset period: NO_RESET, DAY, WEEK, MONTH")
@@ -116,14 +119,20 @@ class UpdateUserInput(BaseModel):
     )
     status: Optional[str] = Field(default=None, description="ACTIVE or DISABLED")
     expire_at: Optional[str] = Field(default=None, description="New expiration date (ISO 8601)")
-    traffic_limit_bytes: Optional[int] = Field(default=None, description="Traffic limit in bytes", ge=0)
+    traffic_limit_bytes: Optional[int] = Field(default=None, description="Traffic limit in bytes, 0 = unlimited", ge=0)
     traffic_limit_strategy: Optional[str] = Field(default=None, description="Reset period: NO_RESET, DAY, WEEK, MONTH")
     description: Optional[str] = Field(default=None, description="Description (empty string to clear)")
     tag: Optional[str] = Field(default=None, description="Tag (empty string to clear)")
     telegram_id: Optional[int] = Field(default=None, description="Telegram ID")
-    email: Optional[str] = Field(default=None, description="Email")
+    email: Optional[str] = Field(default=None, description="Email (empty string to clear)")
     hwid_device_limit: Optional[int] = Field(default=None, description="Device limit", ge=0)
-    active_internal_squads: Optional[list[str]] = Field(default=None, description="Internal squad UUIDs")
+    active_internal_squads: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Internal squad UUIDs (from remnawave_list_internal_squads). Replaces the user's "
+            "whole squad set - include every squad the user should keep."
+        ),
+    )
 
 
 class UserIdInput(BaseModel):
@@ -137,7 +146,10 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def list_users(params: ListUsersInput) -> str:
-        """List all VPN users with pagination. Returns username, status, traffic usage, expiration date, and squads."""
+        """List all VPN users with pagination. Returns username, status, traffic usage,
+        expiration date, and squads. Each entry includes the numeric id the other user
+        tools take and the user's subscription URL. To look up one user, use
+        remnawave_get_user."""
         try:
             data = await api.request("GET", "/api/users", params={"start": params.start, "size": params.size})
             users = data["response"]["users"]
@@ -163,8 +175,11 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_user(params: GetUserInput) -> str:
-        """Get a single user by numeric id, shortUuid, username, telegram ID, or email.
-        Specify exactly one identifier."""
+        """Get one user by id, short_uuid, username, telegram_id, or email; if several are
+        set, the first in that order is used. id, short_uuid and username are direct
+        lookups. telegram_id and email scan all users (exact match; email ignores case) and
+        fail with an error past the first 10,000 users. The result includes the numeric id
+        the other user tools take and the user's subscription URL."""
         try:
             if params.id is not None:
                 path = f"/api/users/{params.id}"
@@ -271,7 +286,9 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
     )
     async def delete_user(params: UserIdInput) -> str:
-        """Permanently delete a user by numeric id. This action cannot be undone."""
+        """Permanently delete a user by numeric id; cannot be undone. To cut access
+        reversibly use remnawave_disable_user; to invalidate leaked subscription links
+        but keep the user, use remnawave_revoke_user."""
         try:
             data = await api.request("DELETE", f"/api/users/{params.id}")
             # 3.x returns 204 with no body (verified live on 3.2.1).

@@ -84,8 +84,8 @@ class RestartNodeInput(BaseModel):
     force: bool = Field(
         True,
         description=(
-            "Sent as forceRestart (a required body field on panel 2.8.0+): skips the "
-            "panel's config-hash check so XRay restarts even when the config is unchanged."
+            "Restart even when the panel's config hash is unchanged (sent as forceRestart). "
+            "false lets the panel skip an unneeded restart."
         ),
     )
     force_cycle: bool = Field(
@@ -170,7 +170,8 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_node(params: NodeUuidInput) -> str:
-        """Get detailed info about a single node by UUID."""
+        """Get one node by UUID: the same fields remnawave_list_nodes shows per node,
+        fetched fresh - use it to re-check a single node, e.g. after a restart or update."""
         try:
             data = await api.request("GET", f"/api/nodes/{params.uuid}")
             return _format_node(data["response"])
@@ -182,7 +183,11 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def enable_node(params: NodeUuidInput) -> str:
-        """Enable a disabled node, allowing it to accept connections."""
+        """Enable a disabled node so it serves users again. Returns the node after the call.
+        The panel finishes a disable asynchronously: an enable sent within a few seconds of
+        remnawave_disable_node can be reverted, leaving the node disabled. For a
+        disable+enable cycle use remnawave_restart_node with force_cycle=true, which waits
+        and verifies."""
         try:
             data = await api.request("POST", f"/api/nodes/{params.uuid}/actions/enable")
             return f"Node enabled.\n\n{_format_node(data['response'])}"
@@ -194,7 +199,10 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def disable_node(params: NodeUuidInput) -> str:
-        """Disable a node, stopping it from accepting new connections."""
+        """Disable a node, taking it out of service: its active user connections drop and it
+        serves nobody until remnawave_enable_node re-enables it. Returns the node after the
+        call. To restart XRay without taking the node out of service, use
+        remnawave_restart_node."""
         try:
             data = await api.request("POST", f"/api/nodes/{params.uuid}/actions/disable")
             return f"Node disabled.\n\n{_format_node(data['response'])}"
@@ -249,10 +257,13 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def restart_node(params: RestartNodeInput) -> str:
-        """Restart XRay on one node (MUTATES PROD: interrupts the node briefly). Default
-        mode sends forceRestart (panel 2.8.0+ requires it in the body); force=true skips
-        the config-hash check like the UI's restart-all. force_cycle=true disables and
-        re-enables the node instead - heavier, also re-establishes the panel-node link."""
+        """Restart XRay on one node (MUTATES PROD: interrupts the node briefly). force
+        (default true) restarts even when the panel sees no config change; force=false lets
+        the panel skip the restart if the config hash is unchanged. Success means the
+        restart event was sent - the XRay uptime from remnawave_get_node shows whether it
+        restarted. force_cycle=true disables and re-enables the node instead (waits and
+        verifies the re-enable): heavier, drops active connections, and re-establishes the
+        panel-node link. To restart every node, use remnawave_restart_all_nodes."""
         try:
             if params.force_cycle:
                 await api.request("POST", f"/api/nodes/{params.uuid}/actions/disable")
@@ -269,13 +280,16 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
                         node = (await api.request("GET", f"/api/nodes/{params.uuid}"))["response"]
                 except Exception as e:
                     return (
-                        f"CRITICAL: node {params.uuid} was disabled but re-enable FAILED - "
-                        f"the node is OFFLINE. Run remnawave_enable_node for it now. Error: {e}"
+                        f"Node {params.uuid} was disabled, but re-enabling or verifying it "
+                        "failed, so it may still be offline. Check its status with "
+                        "remnawave_get_node and re-enable it with remnawave_enable_node if it "
+                        f"is DISABLED. Error: {e}"
                     )
                 if node.get("isDisabled"):
                     return (
-                        f"CRITICAL: node {params.uuid} is still DISABLED after two enable "
-                        "attempts. Run remnawave_enable_node for it now."
+                        f"Node {params.uuid} is still disabled after two enable attempts, so it "
+                        "is offline and serving no users. Re-enable it with "
+                        "remnawave_enable_node and confirm with remnawave_get_node."
                     )
                 return f"Node force-cycled (disable + enable).\n\n{_format_node(node)}"
             data = await api.request(
@@ -298,7 +312,11 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def restart_all_nodes(params: RestartAllNodesInput | None = None) -> str:
-        """Restart XRay on ALL enabled nodes. By default sends forceRestart=true so the panel skips its config-hash check; pass force=false to use the panel's hash-based decision (which often skips the restart)."""
+        """Restart XRay on ALL enabled nodes at once, briefly interrupting every connected
+        user. By default sends forceRestart=true so each node restarts even if its config
+        is unchanged; force=false lets the panel skip nodes whose config hash is unchanged
+        (often all of them). Success means the restart events were sent. For one node, use
+        remnawave_restart_node."""
         try:
             force = params.force if params is not None else True
             await api.request("POST", "/api/nodes/actions/restart-all", body={"forceRestart": force})

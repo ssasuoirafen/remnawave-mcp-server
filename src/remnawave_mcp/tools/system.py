@@ -109,7 +109,11 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def get_system_stats() -> str:
-        """Get system-wide statistics: user counts by status, online stats, node count, total traffic, server CPU/memory."""
+        """Get panel-wide statistics: user counts by status (total, active, disabled,
+        limited, expired), online users (now, last day, last week, never online), the
+        number of nodes currently online, lifetime traffic across all nodes, and the panel
+        server's memory use and uptime. No CPU figures and no per-node breakdown - see
+        remnawave_list_nodes and remnawave_get_node_metrics for node data."""
         try:
             data = await api.request("GET", "/api/system/stats")
             s = data["response"]
@@ -152,7 +156,8 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
     )
     async def get_system_health() -> str:
         """Check panel health. Shows Node.js runtime metrics (RSS, heap, event loop lag,
-        uptime) per panel process (api/scheduler/processor)."""
+        uptime) per panel process (api/scheduler/processor). Covers the panel's own
+        processes only; node connection status is in remnawave_list_nodes."""
         try:
             data = await api.request("GET", "/api/system/health")
             return _format_health(data["response"])

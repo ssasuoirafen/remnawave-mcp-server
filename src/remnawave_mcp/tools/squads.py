@@ -25,7 +25,10 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
         annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def list_internal_squads() -> str:
-        """List all internal squads (inbound groups). Shows name, user count, and inbound count."""
+        """List all internal squads (inbound groups): squad UUID, name, member count, and
+        each inbound's tag and UUID. Squad UUIDs are what active_internal_squads in
+        remnawave_create_user / remnawave_update_user take; inbound UUIDs feed
+        remnawave_update_internal_squad."""
         try:
             data = await api.request("GET", "/api/internal-squads")
             resp = data["response"]

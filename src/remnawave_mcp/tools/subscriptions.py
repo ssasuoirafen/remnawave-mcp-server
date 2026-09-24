@@ -58,7 +58,10 @@ def register(mcp: MCPServer, api: RemnawaveApiClient) -> None:
     )
     async def get_subscription_settings() -> str:
         """Get global subscription settings: base-subscription behavior, per-state custom
-        remarks, custom response headers (incl. Happ routing), HWID settings, response rules."""
+        remarks, custom response headers (incl. the Happ routing deeplink), HWID settings,
+        response rules. Long values are truncated: each header value to 100 characters and
+        the response-rules JSON to 1,500, so full header values and large rule sets are not
+        available from this tool."""
         try:
             data = await api.request("GET", "/api/subscription-settings")
             return _format_settings(data["response"])
