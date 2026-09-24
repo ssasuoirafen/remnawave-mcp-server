@@ -15,7 +15,19 @@ except PackageNotFoundError:  # running from a source tree without an install
 
 # mcp 2.x defaults version to "" (1.x reported the SDK's own version), so set it
 # explicitly or clients see a blank version in serverInfo.
-mcp = MCPServer("remnawave-mcp", version=_VERSION)
+mcp = MCPServer(
+    "remnawave-mcp",
+    version=_VERSION,
+    instructions=(
+        "Admin API for a live production Remnawave VPN panel: create, update, delete, "
+        "enable/disable, revoke and restart calls affect real users immediately. Covers "
+        "VPN users, XRay nodes (status, settings, restarts), subscription hosts, "
+        "internal/external squads, XRay config profiles, panel stats and health, "
+        "bandwidth history, and the node provisioning key. Users are addressed by "
+        "numeric id; nodes, hosts, squads and config profiles by UUID - the list and get "
+        "tools return them."
+    ),
+)
 
 try:
     api = RemnawaveApiClient()
